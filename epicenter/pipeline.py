@@ -89,6 +89,78 @@ def package_prefix_for(root_dir):
     return []
 
 
+def src_layout_dirs(root_dir):
+    """
+    Top-level directories pyproject.toml declares as a src/ layout - a
+    `packages` field pointing under a subdirectory (`src/mypackage`), via
+    either setuptools or hatchling. A file under one of these carries the
+    directory's name in its path but not in its import path, so the parser
+    must drop it too: otherwise `from mypackage.x import y` inside
+    src/mypackage/x.py never matches the symbol parsed from that file, and
+    every absolute self-import in the package silently fails to resolve.
+
+    Returns the set of such directory names (usually just {"src"}), or an
+    empty set if pyproject.toml is absent, unreadable, or names no src dir.
+    """
+    pyproject_path = os.path.join(root_dir, "pyproject.toml")
+    if not os.path.isfile(pyproject_path):
+        return set()
+
+    try:
+        import tomllib
+    except ImportError:
+        return set()
+
+    try:
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+    except Exception:
+        return set()
+
+    tool = data.get("tool", {})
+    if not isinstance(tool, dict):
+        return set()
+
+    package_lists = []
+
+    setuptools_cfg = tool.get("setuptools", {})
+    if isinstance(setuptools_cfg, dict):
+        package_lists.append(setuptools_cfg.get("packages"))
+        package_dir = setuptools_cfg.get("package-dir")
+        if isinstance(package_dir, dict):
+            root_mapping = package_dir.get("")
+            if isinstance(root_mapping, str) and root_mapping:
+                package_lists.append([root_mapping])
+
+    hatch_cfg = tool.get("hatch", {})
+    if isinstance(hatch_cfg, dict):
+        wheel_cfg = hatch_cfg.get("build", {}).get("targets", {}).get("wheel", {})
+        if isinstance(wheel_cfg, dict):
+            package_lists.append(wheel_cfg.get("packages"))
+
+    dirs = set()
+    for packages in package_lists:
+        if not isinstance(packages, list):
+            continue
+        for entry in packages:
+            if isinstance(entry, str) and "/" in entry:
+                dirs.add(entry.split("/")[0])
+
+    return dirs
+
+
+def strip_src_layout(rel_path, src_dirs):
+    """Drops a leading src-layout directory (see `src_layout_dirs`) from a
+    path already relative to the indexed root, so the parsed module name
+    matches how the code actually imports itself."""
+    if not src_dirs:
+        return rel_path
+    parts = rel_path.split(os.sep)
+    if len(parts) > 1 and parts[0] in src_dirs:
+        return os.sep.join(parts[1:])
+    return rel_path
+
+
 def absolute_import_module(module_name, is_package, node):
     """
     Turns a relative import into the module it actually names.
@@ -860,6 +932,7 @@ def parse_repository(root_dir):
     # src/mypackage/) would otherwise drop the package's own name, so the
     # code's absolute self-imports never match the symbols parsed from it.
     package_prefix = package_prefix_for(root_dir)
+    src_dirs = src_layout_dirs(root_dir)
 
     exclude_dirs = {
         ".git", "__pycache__", ".agents", "scratch", "node_modules",
@@ -888,7 +961,7 @@ def parse_repository(root_dir):
             if file.endswith(".py"):
                 file_path = os.path.join(root, file)
                 
-                rel_path = os.path.relpath(file_path, root_dir)
+                rel_path = strip_src_layout(os.path.relpath(file_path, root_dir), src_dirs)
                 module_name, is_package = module_name_for(rel_path, package_prefix)
                     
                 local_symbols.add(module_name)
@@ -945,7 +1018,7 @@ def parse_repository(root_dir):
             if file.endswith(".py"):
                 file_path = os.path.join(root, file)
                 
-                rel_path = os.path.relpath(file_path, root_dir)
+                rel_path = strip_src_layout(os.path.relpath(file_path, root_dir), src_dirs)
                 module_name, is_package = module_name_for(rel_path, package_prefix)
                     
                 try:
