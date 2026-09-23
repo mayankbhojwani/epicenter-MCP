@@ -59,17 +59,28 @@ Changing db.save_user could affect 5 symbol(s):
 
 ### From Claude Code
 
-Add this to `.mcp.json` in any project, restart Claude Code, and approve it:
+One command, no install step — `uvx` fetches and runs it from PyPI on demand:
+
+```bash
+claude mcp add epicenter -- uvx epicenter-mcp
+```
+
+Or add it to `.mcp.json` in any project by hand:
 
 ```json
 {
   "mcpServers": {
-    "epicenter": { "command": "epicenter-mcp" }
+    "epicenter": {
+      "command": "uvx",
+      "args": ["epicenter-mcp"]
+    }
   }
 }
 ```
 
-Then ask in plain language: *"what breaks if I change fetch_graph_data?"*
+(No `uv`? `pip install epicenter-mcp` and use `"command": "epicenter-mcp"` instead.)
+
+Restart Claude Code and approve the server, then ask in plain language: *"what breaks if I change fetch_graph_data?"*
 
 Tools: `impact_of`, `test_coverage`, `change_coupling`, `dead_code`, `dependencies_of`, `find_symbol`, `index_codebase`, `list_codebases`.
 

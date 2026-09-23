@@ -17,7 +17,13 @@ import subprocess
 from collections import Counter, defaultdict
 
 from .database import save_cochange_to_db
-from .pipeline import DefinitionVisitor, module_name_for, package_prefix_for
+from .pipeline import (
+    DefinitionVisitor,
+    module_name_for,
+    package_prefix_for,
+    src_layout_dirs,
+    strip_src_layout,
+)
 
 DEFAULT_MAX_COMMITS = 500
 
@@ -173,6 +179,7 @@ def analyze_history(realm, max_commits=DEFAULT_MAX_COMMITS, progress=None):
         return None
 
     package_prefix = package_prefix_for(realm)
+    src_dirs = src_layout_dirs(realm)
     rel_realm = os.path.relpath(realm, root)
 
     log = _git(
@@ -202,6 +209,7 @@ def analyze_history(realm, max_commits=DEFAULT_MAX_COMMITS, progress=None):
         touched = set()
         for path in files:
             rel_to_realm = os.path.relpath(path, rel_realm) if rel_realm != "." else path
+            rel_to_realm = strip_src_layout(rel_to_realm, src_dirs)
             module_name, is_package = module_name_for(rel_to_realm, package_prefix)
             touched |= symbols_touched(root, sha, path, module_name, is_package)
 
